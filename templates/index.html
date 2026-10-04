@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <title>{{ app_name }}</title>
+
+  <link rel="icon" type="image/png" href="/static/logo.png" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body>
+  <div class="app">
+    <nav class="rail" aria-label="Main">
+      <div class="mark" title="KnowFlow"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M5 5v14M5 12h5c3 0 3-6 6-6h3M10 12c3 0 3 6 6 6h3"/></svg></div>
+      <button id="newChat" class="rail-btn" title="New chat" aria-label="New chat"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>
+      <button id="openUpload" class="rail-btn" title="Add a document" aria-label="Add a document"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M12 17v-6m-3 3 3-3 3 3"/></svg></button>
+    </nav>
+
+    <main class="main">
+      <header class="top">
+        <div class="brand"><b>KnowFlow</b><span>IT support</span></div>
+        <ol id="pipeline" class="pipeline" aria-label="Agent progress">
+          <li data-k="route">Route</li>
+          <li data-k="retrieve">Retrieve</li>
+          <li data-k="grade">Grade</li>
+          <li data-k="web">Web</li>
+          <li data-k="rewrite">Retry</li>
+          <li data-k="answer">Answer</li>
+        </ol>
+        <div class="src"><span>Source</span><strong id="sourceUsed">None</strong></div>
+      </header>
+
+      <section id="chat" class="chat" aria-live="polite">
+        <div id="hero" class="hero">
+          <h1>Ask IT anything.</h1>
+          <p>Answers come from your company's documents first. The web is only used when they don't cover it.</p>
+          <div class="examples">
+            <button class="example" type="button"><span>How do I connect to the company VPN?</span><em>Company docs</em></button>
+            <button class="example" type="button"><span>What is our password reset policy?</span><em>Company docs</em></button>
+            <button class="example" type="button"><span>What is the latest Microsoft Teams outage guidance?</span><em>May use the web</em></button>
+          </div>
+        </div>
+      </section>
+
+      <div class="dock">
+        <form id="chatForm" class="composer">
+          <textarea id="question" rows="1" placeholder="Ask a question about IT support" required></textarea>
+          <button type="submit" class="send" aria-label="Send"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
+        </form>
+        <p class="hint">Enter to send · Shift+Enter for a new line</p>
+      </div>
+    </main>
+  </div>
+
+  <div id="uploadModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="uploadTitle">
+    <div class="sheet">
+      <div class="sheet-head"><h2 id="uploadTitle">Add a document</h2><button id="closeUpload" class="x" aria-label="Close">×</button></div>
+      <p class="sub">PDF, TXT, Markdown or DOCX. It is split into chunks and indexed in Pinecone.</p>
+      <label class="drop" for="fileInput"><input id="fileInput" type="file" accept=".pdf,.txt,.md,.docx" /><span id="fileName">Choose a file</span></label>
+      <input id="adminKey" class="field" type="password" placeholder="Admin API key" />
+      <button id="uploadBtn" class="primary">Index document</button>
+      <div id="uploadStatus" class="upload-status" role="status"></div>
+    </div>
+  </div>
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
