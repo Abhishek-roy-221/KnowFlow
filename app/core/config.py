@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     app_env: str = "development"
     groq_api_key: str = ""
     tavily_api_key: str = ""
+    hf_token: str = ""
     pinecone_api_key: str = ""
     pinecone_index_name: str = "fde-it-support-rag"
     pinecone_namespace: str = "company-it-kb"

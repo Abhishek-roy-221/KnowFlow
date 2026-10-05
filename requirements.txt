@@ -9,14 +9,13 @@ langchain
 langchain-core
 langchain-community
 langchain-groq
-langchain-huggingface
 langchain-tavily
 langchain-pinecone
 langchain-text-splitters
 
 pinecone
+huggingface_hub
 
-sentence-transformers
 beautifulsoup4
 cryptography
 pypdf
