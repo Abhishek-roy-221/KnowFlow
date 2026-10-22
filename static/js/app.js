@@ -70,8 +70,9 @@ function autosize() { question.style.height = 'auto'; question.style.height = Ma
 question.addEventListener('input', autosize);
 question.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); form.requestSubmit(); } });
 form.addEventListener('submit', e => { e.preventDefault(); const q = question.value.trim(); if (q) ask(q); });
-document.querySelectorAll('.example').forEach(b => b.addEventListener('click', () => ask(b.querySelector('span').textContent.trim())));
-$('newChat').onclick = () => location.reload();
+const heroHTML = $('hero').outerHTML;
+chat.addEventListener('click', e => { const b = e.target.closest('.example'); if (b) ask(b.querySelector('span').textContent.trim()); });
+$('newChat').onclick = () => { chat.innerHTML = heroHTML; resetProgress(); sourceUsed.textContent = 'None'; question.value = ''; autosize(); question.focus(); };
 
 /* Upload */
 const modal = $('uploadModal'), status = $('uploadStatus');
@@ -89,6 +90,44 @@ $('uploadBtn').onclick = async () => {
   try {
     const r = await fetch('/api/ingest', { method: 'POST', headers: { 'X-Admin-Key': $('adminKey').value }, body: fd });
     const d = await r.json(); if (!r.ok) throw new Error(d.detail || 'Upload failed');
-    status.textContent = `Indexed ${d.file} (${d.chunks} chunks).`;
+    status.textContent = `Indexed ${d.file} (${d.chunks} chunks).`; loadDocs();
   } catch (e) { status.textContent = `${e.message}. Check the admin key and file type.`; status.classList.add('error'); }
 };
+
+/* Knowledge base library */
+const lib = $('library');
+async function loadDocs() {
+  const list = $('docList'), count = $('libCount');
+  try {
+    const r = await fetch('/api/documents', { cache: 'no-store' }); if (!r.ok) throw new Error();
+    const data = await r.json(), docs = Array.isArray(data) ? data : (data.documents || []);
+    count.textContent = `${docs.length} document${docs.length === 1 ? '' : 's'} indexed`;
+    list.innerHTML = docs.length ? docs.map(d => {
+      const name = d.name || d.file || d.filename || 'Untitled', ext = (name.split('.').pop() || 'doc').slice(0, 4);
+      const when = d.uploaded_at ? new Date(d.uploaded_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+      const meta = [d.chunks != null ? `${d.chunks} chunks` : '', when].filter(Boolean).join(' · ');
+      const n = esc(name), url = '/api/documents/' + encodeURIComponent(name);
+      return `<li><div class="doc-ico">${esc(ext)}</div><a class="doc-main" href="${url}" target="_blank" rel="noopener"><div class="doc-name">${n}</div>${meta ? `<div class="doc-meta">${esc(meta)}</div>` : ''}</a><button class="doc-del" type="button" data-name="${n}" title="Delete" aria-label="Delete ${n}"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></svg></button></li>`;
+    }).join('') : '<li class="doc-empty">No documents yet. Add one to get started.</li>';
+  } catch { count.textContent = 'Could not load documents'; list.innerHTML = '<li class="doc-empty">The document list is unavailable right now.</li>'; }
+}
+$('openLibrary').onclick = () => { lib.classList.add('open'); loadDocs(); };
+$('closeLibrary').onclick = () => lib.classList.remove('open');
+$('libAdd').onclick = () => modal.classList.remove('hidden');
+document.addEventListener('keydown', e => { if (e.key === 'Escape') lib.classList.remove('open'); });
+
+$('docList').addEventListener('click', async e => {
+  const b = e.target.closest('.doc-del'); if (!b) return;
+  const name = b.dataset.name;
+  if (!confirm(`Delete "${name}" from the knowledge base? Its indexed content will be removed too.`)) return;
+  const key = $('adminKey').value || prompt('Admin API key');
+  if (!key) return;
+  b.disabled = true;
+  try {
+    const r = await fetch('/api/documents/' + encodeURIComponent(name), { method: 'DELETE', headers: { 'X-Admin-Key': key } });
+    const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d.detail || 'Delete failed');
+    if (!d.vectors_deleted) alert('The file was removed, but no matching indexed content was found. It may still be in the index.');
+    b.closest('li').remove();
+    loadDocs();
+  } catch (err) { alert(err.message); b.disabled = false; loadDocs(); }
+});

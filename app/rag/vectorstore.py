@@ -1,10 +1,9 @@
-import math
+
 import time
 
 from pinecone import Pinecone, ServerlessSpec
-from langchain_core.embeddings import Embeddings
+from langchain_huggingface import HuggingFaceEmbeddings as LocalHuggingFaceEmbeddings
 from langchain_pinecone import PineconeVectorStore
-from huggingface_hub import InferenceClient
 
 from app.core.config import get_settings
 
@@ -35,6 +34,9 @@ def get_embedding_dimension(model_name: str | None = None) -> int:
     if normalized in EMBEDDING_DIMENSIONS:
         return EMBEDDING_DIMENSIONS[normalized]
 
+    if "all-minilm" in normalized:
+        return 384
+
     if "text-embedding-3-small" in normalized:
         return 1536
 
@@ -44,82 +46,26 @@ def get_embedding_dimension(model_name: str | None = None) -> int:
     if "text-embedding-ada-002" in normalized:
         return 1536
 
-    if "all-minilm" in normalized:
-        return 384
-
-    raise ValueError(
-        f"Unsupported embedding model '{model_name or settings.embedding_model}'."
-    )
-
-
-class HuggingFaceEmbeddings(Embeddings):
-
-    def __init__(self):
-        if not settings.hf_token:
-            raise RuntimeError("HF_TOKEN is missing")
-
-        self.client = InferenceClient(
-            provider="hf-inference",
-            api_key=settings.hf_token,
-        )
-
-        self.model = settings.embedding_model
-
-    def _normalize(self, vector):
-        magnitude = math.sqrt(sum(value * value for value in vector))
-
-        if magnitude == 0:
-            return vector
-
-        return [value / magnitude for value in vector]
-
-    def _embed(self, texts):
-        if not texts:
-            return []
-
-        result = self.client.feature_extraction(
-            texts,
-            model=self.model,
-        )
-
-        vectors = result.tolist() if hasattr(result, "tolist") else result
-
-        embeddings = []
-
-        for vector in vectors:
-            if vector and isinstance(vector[0], list):
-                pooled = [
-                    sum(token[i] for token in vector) / len(vector)
-                    for i in range(len(vector[0]))
-                ]
-                vector = pooled
-
-            vector = self._normalize(vector)
-
-            expected_dimension = get_embedding_dimension(self.model)
-
-            if len(vector) != expected_dimension:
-                raise RuntimeError(
-                    f"Hugging Face returned {len(vector)} dimensions, "
-                    f"expected {expected_dimension}."
-                )
-
-            embeddings.append(vector)
-
-        return embeddings
-
-    def embed_documents(self, texts):
-        return self._embed(texts)
-
-    def embed_query(self, text):
-        return self._embed([text])[0]
+    raise ValueError(f"Unsupported embedding model: {name}")
 
 
 def get_embeddings():
     global _embeddings
 
     if _embeddings is None:
-        _embeddings = HuggingFaceEmbeddings()
+        model_name = settings.embedding_model
+
+        if "all-minilm" not in model_name.lower():
+            raise ValueError(
+                "For local Hugging Face embeddings, set "
+                "EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2"
+            )
+
+        _embeddings = LocalHuggingFaceEmbeddings(
+            model_name=model_name,
+            model_kwargs={"device": "cpu"},
+            encode_kwargs={"normalize_embeddings": True},
+        )
 
     return _embeddings
 
@@ -129,14 +75,12 @@ def ensure_index():
         raise RuntimeError("PINECONE_API_KEY is missing")
 
     desired_dimension = get_embedding_dimension()
-
     pc = Pinecone(api_key=settings.pinecone_api_key)
 
-    names = [x["name"] for x in pc.list_indexes()]
+    names = [item["name"] for item in pc.list_indexes()]
 
     if settings.pinecone_index_name in names:
         index_info = pc.describe_index(settings.pinecone_index_name)
-
         current_dimension = getattr(index_info, "dimension", None)
 
         if current_dimension is None and isinstance(index_info, dict):
@@ -146,16 +90,15 @@ def ensure_index():
             current_dimension is not None
             and current_dimension != desired_dimension
         ):
-            pc.delete_index(name=settings.pinecone_index_name)
+            raise RuntimeError(
+                f"Pinecone index '{settings.pinecone_index_name}' "
+                f"has dimension {current_dimension}, but the configured "
+                f"embedding model requires {desired_dimension}. "
+                "Create a separate index with the correct dimension "
+                "and re-index your documents. Existing index was not deleted."
+            )
 
-            while settings.pinecone_index_name in [
-                x["name"] for x in pc.list_indexes()
-            ]:
-                time.sleep(1)
-
-    if settings.pinecone_index_name not in [
-        x["name"] for x in pc.list_indexes()
-    ]:
+    else:
         pc.create_index(
             name=settings.pinecone_index_name,
             dimension=desired_dimension,
@@ -198,3 +141,38 @@ def get_retriever():
 def add_documents(chunks):
     store = get_vectorstore()
     return store.add_documents(chunks)
+
+
+
+def delete_document(path) -> int:
+    """Delete every chunk of one uploaded file from Pinecone. Returns how many were removed."""
+    from pathlib import Path
+ 
+    p = Path(path)
+    # Loaders may record the source as a relative path, absolute path or bare name.
+    candidates = list({str(p), str(p.resolve()), p.as_posix(), p.resolve().as_posix(), p.name})
+    flt = {
+        "$or": [
+            {key: {"$in": candidates}}
+            for key in ("source", "file", "file_name", "filename")
+        ]
+    }
+ 
+    store = get_vectorstore()
+    index = store._index
+    namespace = settings.pinecone_namespace or ""
+    probe = get_embeddings().embed_query(p.name)  # any valid vector works; the filter does the matching
+ 
+    deleted = 0
+    for _ in range(20):  # serverless can't delete by filter, so find the IDs first
+        res = index.query(
+            vector=probe, top_k=1000, filter=flt,
+            namespace=namespace, include_metadata=False,
+        )
+        ids = [m["id"] for m in res["matches"]]
+        if not ids:
+            break
+        for i in range(0, len(ids), 200):
+            index.delete(ids=ids[i:i + 200], namespace=namespace)
+        deleted += len(ids)
+    return deleted
